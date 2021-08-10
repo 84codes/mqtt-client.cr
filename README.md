@@ -16,6 +16,8 @@ dependencies:
 
 ## Usage
 
+The library has both a autoreconnecting highlevel API shown below:
+
 ```crystal
 require "mqtt-client"
 
@@ -25,7 +27,24 @@ mqtt.on_message do |msg|
   puts "Got a message, on topic #{msg.topic}: #{String.new(msg.body)}"
 end
 
+mqtt.start
+
 mqtt.subscribe("foo")
 
 mqtt.publish("foo", "bar".to_slice)
+```
+
+And a basic API that is more true to the protocol but that requires you to handle reconnection manually.
+
+```crystal
+require "mqtt-client"
+
+mqtt = MQTT::Client.new("localhost", 1883)
+
+conn = mqtt.connect
+mqtt.on_message do |msg|
+  puts "Got a message, on topic #{msg.topic}: #{String.new(msg.body)}"
+end
+conn.publish MQTT::Client::Message.new("topic", "body".to_slice)
+
 ```

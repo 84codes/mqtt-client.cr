@@ -8,15 +8,18 @@ module MQTT
       @verify_mode = OpenSSL::SSL::VerifyMode::PEER
       @publishes = Channel(Message).new(32)
       @subscriptions = Array(Tuple(String, UInt8)).new
-      spawn connect_loop, name: "MQTT Client connect_loop"
-      Fiber.yield
     end
 
     @closed = false
     @connection : Connection?
     @conn_lock = Mutex.new
 
-    def connect_loop
+    def start
+      spawn connect_loop, name: "MQTT Client connect_loop"
+      Fiber.yield
+    end
+
+    private def connect_loop
       @conn_lock.lock
       loop do
         break if @closed
@@ -65,15 +68,14 @@ module MQTT
     end
 
     def subscribe(topic : String, qos = 0u8)
-      raise ArgumentError.new("No on_message handler set") unless @on_message
-      @conn_lock.synchronize do
-        @connection.not_nil!.subscribe topic, qos
-      end
+      subscribe({ { topic, qos } })
     end
 
     def subscribe(topics : Enumerable(Tuple(String, UInt8)))
       raise ArgumentError.new("No on_message handler set") unless @on_message
-      # TODO
+      @conn_lock.synchronize do
+        @connection.not_nil!.subscribe topics
+      end
     end
 
     def unsubscribe(topic : String, qos = 0u8)
