@@ -6,37 +6,31 @@ module MQTT
   class Client
     def initialize(@host : String, @port = 1883, @tls = false, @client_id = "", @clean_session = true, @user = "", @password = "", @keepalive = 60u16, @will : Message? = nil)
       @verify_mode = OpenSSL::SSL::VerifyMode::PEER
-      @publishes = Channel(Message).new(32)
-      @subscriptions = Array(Tuple(String, UInt8)).new
+      @conn_chan = Channel(Connection).new
     end
 
     @closed = false
     @connection : Connection?
-    @conn_lock = Mutex.new
 
     def start
-      @closed = false
       spawn connect_loop, name: "MQTT Client connect_loop"
       Fiber.yield
     end
 
     private def connect_loop
-      @conn_lock.lock
+      @closed = false
+      connection = connect
+      connection.on_message = @on_message
       loop do
         break if @closed
-        connection = @connection = connect
-        connection.on_message = @on_message
-        @conn_lock.unlock
-        connection.read_loop
-        puts "Disconnected from MQTT server: EOFError"
-      rescue ex
-        puts "Disconnected from MQTT server: #{ex.inspect_with_backtrace}"
-      ensure
-        if @connection
-          @conn_lock.lock
-          @connection = nil
-        end
+        @conn_chan.send connection
+        connection = @conn_chan.receive
+        break if @closed
+        next if connection.connected?
+        puts "MQTT reconnecting in 1s"
         sleep 1
+        connection = connect
+        connection.on_message = @on_message
       end
     end
 
@@ -55,9 +49,9 @@ module MQTT
     end
 
     def publish(*messages : Message)
-      @conn_lock.synchronize do
+      with_connection do |connection|
         messages.each do |message|
-          @connection.not_nil!.publish message
+          connection.publish message
         end
       end
     end
@@ -75,19 +69,24 @@ module MQTT
     end
 
     def subscribe(topic : String, qos : Int = 0u8)
-      subscribe({ topic, qos })
+      subscribe({topic, qos})
     end
 
     def subscribe(*topics : Tuple(String, Int))
       raise ArgumentError.new("No on_message handler set") unless @on_message
-      @conn_lock.synchronize do
-        @connection.not_nil!.subscribe *topics
-      end
+      with_connection &.subscribe(*topics)
     end
 
     def unsubscribe(*topics : String)
-      @conn_lock.synchronize do
-        @connection.not_nil!.unsubscribe *topics
+      with_connection &.unsubscribe(*topics)
+    end
+
+    private def with_connection
+      connection = @conn_chan.receive
+      begin
+        yield connection
+      ensure
+        @conn_chan.send connection
       end
     end
 

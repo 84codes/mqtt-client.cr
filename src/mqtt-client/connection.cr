@@ -19,13 +19,16 @@ module MQTT
       @on_message : Proc(Message, Nil)?
       @packet_id = 0u16
       @acks = Channel(UInt16).new
+      getter? connected = false
 
       def initialize(@socket : IO, @client_id = "", @clean_session = true,
                      @user : String? = nil, @password : String? = nil,
                      @will : Message? = nil, @keepalive : UInt16 = 60u16)
         send_connect(@socket)
         expect_connack(@socket)
-        spawn ping_loop, name: "mqtt-client ping_loop"
+        spawn read_loop, name: "mqtt-client read_loop"
+        spawn ping_loop, name: "mqtt-client ping_loop" if @keepalive > 0
+        @connected = true
       end
 
       private def send_connect(socket) : Nil
@@ -107,6 +110,8 @@ module MQTT
         rescue IO::EOFError
           break
         end
+      ensure
+        @connected = false
       end
 
       private def connack(socket, flags, pktlen)
