@@ -13,12 +13,15 @@ module MQTT
     @connection : Connection?
 
     def start
+      @closed = false
       spawn connect_loop, name: "MQTT Client connect_loop"
-      Fiber.yield
+    end
+
+    def close
+      @closed = true
     end
 
     private def connect_loop
-      @closed = false
       connection = connect
       connection.on_message = @on_message
       loop do

@@ -29,9 +29,11 @@ end
 
 mqtt.start
 
-mqtt.subscribe("foo")
+mqtt.subscribe("foo", qos: 1)
 
-mqtt.publish("foo", "bar".to_slice)
+mqtt.publish("foo", "bar", qos: 1)
+
+mqtt.close
 ```
 
 And a basic API that is more true to the protocol but that requires you to handle reconnection manually.

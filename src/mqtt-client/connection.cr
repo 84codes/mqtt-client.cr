@@ -124,6 +124,8 @@ module MQTT
         rescue IO::EOFError
           break
         end
+      rescue ex
+        raise ex if @connected
       ensure
         close
       end
