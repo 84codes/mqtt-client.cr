@@ -10,8 +10,8 @@ describe MQTT::Client do
       msg.body.should eq "bar".to_slice
       done.send nil
     end
-    mqtt.subscribe("foo")
-    mqtt.publish("foo", "bar".to_slice, 1)
+    mqtt.subscribe("foo", 2)
+    mqtt.publish("foo", "bar", 2)
     done.receive
   end
 end

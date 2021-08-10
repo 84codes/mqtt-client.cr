@@ -143,16 +143,12 @@ module MQTT
         @on_message = blk
       end
 
-      def subscribe(topic, qos)
-        subscribe({ {topic, qos} })
-      end
-
-      def subscribe(topics : Enumerable(Tuple(String, UInt8)))
-        id = send_subscribe(@socket, topics)
+      def subscribe(*topics : Tuple(String, Int))
+        id = send_subscribe(@socket, *topics)
         wait_for_id(id)
       end
 
-      private def send_subscribe(socket, topics : Enumerable(Tuple(String, UInt8)))
+      private def send_subscribe(socket, *topics : Tuple(String, Int))
         socket.write_byte 0b10000010u8
 
         length = 2 + topics.sum { |t, _| 2 + t.bytesize + 1 }
@@ -161,13 +157,13 @@ module MQTT
         id = send_next_packet_id(socket)
         topics.each do |topic, qos|
           send_string(socket, topic)
-          socket.write_byte qos
+          socket.write_byte qos.to_u8
         end
         socket.flush
         id
       end
 
-      def unsubscribe(topics : Enumerable(String))
+      def unsubscribe(*topics : String)
         id = send_unsubscribe(@socket, topics)
         wait_for_id(id)
       end
@@ -252,13 +248,13 @@ module MQTT
         body = Bytes.new(pktlen - header_len)
         socket.read_fully(body)
 
-        message = Message.new(topic, body, qos, retain, dup)
-        @on_message.try &.call(message)
-
         case qos
         when 1 then send_puback(socket, packet_id.not_nil!)
         when 2 then send_pubrec(socket, packet_id.not_nil!)
         end
+
+        message = Message.new(topic, body, qos, retain, dup)
+        @on_message.try &.call(message)
       end
 
       private def send_pingreq(socket)

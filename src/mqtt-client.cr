@@ -4,7 +4,7 @@ require "./mqtt-client/connection"
 
 module MQTT
   class Client
-    def initialize(@host : String, @port = 1883, @tls = false, @client_id = "", @clean_session = true, @user = "", @password = "", @keepalive = 60u16)
+    def initialize(@host : String, @port = 1883, @tls = false, @client_id = "", @clean_session = true, @user = "", @password = "", @keepalive = 60u16, @will : Message? = nil)
       @verify_mode = OpenSSL::SSL::VerifyMode::PEER
       @publishes = Channel(Message).new(32)
       @subscriptions = Array(Tuple(String, UInt8)).new
@@ -15,6 +15,7 @@ module MQTT
     @conn_lock = Mutex.new
 
     def start
+      @closed = false
       spawn connect_loop, name: "MQTT Client connect_loop"
       Fiber.yield
     end
@@ -49,9 +50,15 @@ module MQTT
       end
     end
 
-    def publish(message : Message)
+    def disconnect
+      @closed = true
+    end
+
+    def publish(*messages : Message)
       @conn_lock.synchronize do
-        @connection.not_nil!.publish message
+        messages.each do |message|
+          @connection.not_nil!.publish message
+        end
       end
     end
 
@@ -67,20 +74,20 @@ module MQTT
       @on_message = blk
     end
 
-    def subscribe(topic : String, qos = 0u8)
-      subscribe({ { topic, qos } })
+    def subscribe(topic : String, qos : Int = 0u8)
+      subscribe({ topic, qos })
     end
 
-    def subscribe(topics : Enumerable(Tuple(String, UInt8)))
+    def subscribe(*topics : Tuple(String, Int))
       raise ArgumentError.new("No on_message handler set") unless @on_message
       @conn_lock.synchronize do
-        @connection.not_nil!.subscribe topics
+        @connection.not_nil!.subscribe *topics
       end
     end
 
-    def unsubscribe(topic : String, qos = 0u8)
+    def unsubscribe(*topics : String)
       @conn_lock.synchronize do
-        @connection.not_nil!.unsubscribe topic, qos
+        @connection.not_nil!.unsubscribe *topics
       end
     end
 
@@ -99,10 +106,14 @@ module MQTT
     end
 
     private def connect_tls(socket)
-      socket.sync = true
-      socket.read_buffering = false
       ctx = OpenSSL::SSL::Context::Client.new
       ctx.verify_mode = @verify_mode
+      connect_tls(socket, ctx)
+    end
+
+    private def connect_tls(socket, ctx)
+      socket.sync = true
+      socket.read_buffering = false
       tls_socket = OpenSSL::SSL::Socket::Client.new(socket, ctx, sync_close: true, hostname: @host)
       tls_socket.sync = false
       tls_socket.read_buffering = true
