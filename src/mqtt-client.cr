@@ -32,6 +32,9 @@ module MQTT
         connection = connect
         connection.on_message = @on_message
       end
+    ensure
+      @conn_chan.close
+      connection.try &.close
     end
 
     def connect

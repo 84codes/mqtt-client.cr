@@ -16,9 +16,10 @@ module MQTT
     end
 
     class Connection
+      @acks = Channel(UInt16).new
+      @messages = Channel(Message).new(32)
       @on_message : Proc(Message, Nil)?
       @packet_id = 0u16
-      @acks = Channel(UInt16).new
       getter? connected = false
 
       def initialize(@socket : IO, @client_id = "", @clean_session = true,
@@ -27,8 +28,21 @@ module MQTT
         send_connect(@socket)
         expect_connack(@socket)
         spawn read_loop, name: "mqtt-client read_loop"
+        spawn message_loop, name: "mqtt-client message_loop"
         spawn ping_loop, name: "mqtt-client ping_loop" if @keepalive > 0
         @connected = true
+      end
+
+      private def message_loop
+        loop do
+          message = @messages.receive
+          @on_message.try &.call(message)
+        end
+      end
+
+      def close
+        @connected = false
+        @socket.close
       end
 
       private def send_connect(socket) : Nil
@@ -111,7 +125,7 @@ module MQTT
           break
         end
       ensure
-        @connected = false
+        close
       end
 
       private def connack(socket, flags, pktlen)
@@ -135,6 +149,8 @@ module MQTT
           sleep keepalive
           send_pingreq(@socket)
         end
+      ensure
+        close
       end
 
       private def pingresp(socket, flags, pktlen)
@@ -253,13 +269,12 @@ module MQTT
         body = Bytes.new(pktlen - header_len)
         socket.read_fully(body)
 
+        @messages.send Message.new(topic, body, qos, retain, dup)
+
         case qos
         when 1 then send_puback(socket, packet_id.not_nil!)
         when 2 then send_pubrec(socket, packet_id.not_nil!)
         end
-
-        message = Message.new(topic, body, qos, retain, dup)
-        @on_message.try &.call(message)
       end
 
       private def send_pingreq(socket)
