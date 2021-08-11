@@ -179,6 +179,10 @@ module MQTT
         @on_message = blk
       end
 
+      def subscribe(topic, qos : Int = 0)
+        subscribe({topic, qos.to_u8})
+      end
+
       def subscribe(*topics : Tuple(String, Int))
         id = send_subscribe(@socket, *topics)
         wait_for_id(id)
