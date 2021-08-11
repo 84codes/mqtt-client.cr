@@ -17,6 +17,7 @@ module MQTT
 
     class Connection
       @acks = Channel(UInt16).new
+      @pings = Channel(Nil).new
       @messages = Channel(Message).new(32)
       @on_message : Proc(Message, Nil)?
       @packet_id = 0u16
@@ -156,6 +157,18 @@ module MQTT
       end
 
       private def pingresp(socket, flags, pktlen)
+        flags.zero? || raise "invalid pingresp flags"
+        pktlen.zero? || raise "invalid pingresp length"
+        case
+        when @pings.send nil
+        else
+          puts "can't send ping"
+        end
+      end
+
+      def ping
+        send_pingreq(@socket)
+        @pings.receive
       end
 
       def on_message=(blk : Proc(Message, Nil)?)

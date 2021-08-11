@@ -17,4 +17,9 @@ describe MQTT::Client do
     done.receive
     done.receive
   end
+
+  it "can ping" do
+    mqtt = MQTT::Client.new("localhost", 1883)
+    mqtt.connect.ping.should eq nil
+  end
 end
