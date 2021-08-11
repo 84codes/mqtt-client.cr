@@ -4,7 +4,7 @@ require "./mqtt-client/connection"
 
 module MQTT
   class Client
-    def initialize(@host : String, @port = 1883, @tls = false, @client_id = "", @clean_session = true, @user = "", @password = "", @will : Message? = nil, @keepalive = 60u16)
+    def initialize(@host : String, @port = 1883, @tls = false, @client_id = "", @clean_session = true, @user : String? = nil, @password : String? = nil, @will : Message? = nil, @keepalive = 60u16)
       @verify_mode = OpenSSL::SSL::VerifyMode::PEER
     end
 
