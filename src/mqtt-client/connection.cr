@@ -179,8 +179,8 @@ module MQTT
         @on_message = blk
       end
 
-      def subscribe(topic, qos : Int = 0)
-        subscribe({topic, qos.to_u8})
+      def subscribe(topic : String, qos : Int = 0u8)
+        subscribe({topic, qos})
       end
 
       def subscribe(*topics : Tuple(String, Int))
