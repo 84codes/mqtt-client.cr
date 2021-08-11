@@ -4,13 +4,12 @@ require "./mqtt-client/connection"
 
 module MQTT
   class Client
-    def initialize(@host : String, @port = 1883, @tls = false, @client_id = "", @clean_session = true, @user = "", @password = "", @keepalive = 60u16, @will : Message? = nil)
+    def initialize(@host : String, @port = 1883, @tls = false, @client_id = "", @clean_session = true, @user = "", @password = "", @will : Message? = nil, @keepalive = 60u16)
       @verify_mode = OpenSSL::SSL::VerifyMode::PEER
-      @conn_chan = Channel(Connection).new
     end
 
     @closed = false
-    @connection : Connection?
+    @conn_chan = Channel(Connection).new
 
     def start
       @closed = false
@@ -18,7 +17,9 @@ module MQTT
     end
 
     def close
-      @closed = true
+      with_connection do |_|
+        @closed = true
+      end
     end
 
     private def connect_loop
@@ -43,10 +44,10 @@ module MQTT
     def connect
       if @tls
         socket = connect_tls(connect_tcp)
-        Connection.new(socket, @client_id, @clean_session, @user, @password, nil, @keepalive.to_u16)
+        Connection.new(socket, @client_id, @clean_session, @user, @password, @will, @keepalive.to_u16)
       else
         socket = connect_tcp
-        Connection.new(socket, @client_id, @clean_session, @user, @password, nil, @keepalive.to_u16)
+        Connection.new(socket, @client_id, @clean_session, @user, @password, @will, @keepalive.to_u16)
       end
     end
 
