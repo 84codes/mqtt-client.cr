@@ -22,4 +22,11 @@ describe MQTT::Client do
     mqtt = MQTT::Client.new("localhost", 1883)
     mqtt.connect.ping.should eq nil
   end
+
+  it "can keepalive" do
+    mqtt = MQTT::Client.new("localhost", 1883, keepalive: 1u16)
+    mqtt.start
+    sleep 1.5
+    mqtt.close
+  end
 end

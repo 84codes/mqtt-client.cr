@@ -163,6 +163,8 @@ module MQTT
           sleep keepalive
           send_pingreq(@socket)
         end
+      rescue ex
+        STDERR.puts "MQTT keepalive error: #{ex.message}" if @connected
       ensure
         close
       end
