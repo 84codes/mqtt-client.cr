@@ -228,7 +228,7 @@ module MQTT
       end
 
       private def send_unsubscribe(socket, topics)
-        socket.write_byte 0b10000010u8
+        socket.write_byte 0b10100010u8
 
         length = 2 + topics.sum { |t| 2 + t.bytesize }
         encode_length(socket, length)
