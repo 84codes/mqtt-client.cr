@@ -3,13 +3,21 @@ require "./message"
 module MQTT
   class Client
     class Error < Exception; end
+
     class UnexpectedPacket < Error; end
+
     class ConnectError < Error; end
+
     class InvalidProtocolVersion < ConnectError; end
+
     class IdentifierReject < ConnectError; end
+
     class NotAuthorized < ConnectError; end
+
     class ServerUnavailable < ConnectError; end
+
     class BadCredentials < ConnectError; end
+
     class InvalidResponse < ConnectError
       def initialize(@response_code : UInt8)
       end
@@ -56,6 +64,9 @@ module MQTT
         end
         if p = @password
           length += 2 + p.bytesize
+        end
+        if w = @will
+          length += 2 + w.topic.bytesize + 2 + w.body.bytesize
         end
 
         encode_length(socket, length)
@@ -208,11 +219,11 @@ module MQTT
         wait_for_id(id)
       end
 
-      private def wait_for_id(id)
+      private def wait_for_id(id : UInt16)
         loop do
           ack_id = @acks.receive
           break if ack_id == id
-          @acks.send id # if unexpected id, put it back on the channel
+          @acks.send ack_id # if unexpected id, put it back on the channel
         end
       end
 
@@ -226,6 +237,7 @@ module MQTT
         topics.each do |topic|
           send_string(socket, topic)
         end
+        socket.flush
         id
       end
 
