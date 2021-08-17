@@ -1,34 +1,16 @@
 require "./message"
+require "./errors"
 
 module MQTT
   class Client
-    class Error < Exception; end
-
-    class UnexpectedPacket < Error; end
-
-    class ConnectError < Error; end
-
-    class InvalidProtocolVersion < ConnectError; end
-
-    class IdentifierReject < ConnectError; end
-
-    class NotAuthorized < ConnectError; end
-
-    class ServerUnavailable < ConnectError; end
-
-    class BadCredentials < ConnectError; end
-
-    class InvalidResponse < ConnectError
-      def initialize(@response_code : UInt8)
-      end
-    end
-
     class Connection
       @acks = Channel(UInt16).new
       @pings = Channel(Nil).new
       @messages = Channel(Message).new(32)
       @on_message : Proc(Message, Nil)?
       @packet_id = 0u16
+      @last_pingreq = Time.monotonic
+      @last_pingresp = Time.monotonic
       getter? connected = false
 
       def initialize(@socket : IO, @client_id = "", @clean_session = true,
@@ -38,13 +20,12 @@ module MQTT
         expect_connack(@socket)
         spawn read_loop, name: "mqtt-client read_loop"
         spawn message_loop, name: "mqtt-client message_loop"
-        spawn ping_loop, name: "mqtt-client ping_loop" if @keepalive > 0
         @connected = true
       end
 
       private def message_loop
         loop do
-          message = @messages.receive
+          message = @messages.receive? || break
           @on_message.try &.call(message)
         end
       end
@@ -52,6 +33,7 @@ module MQTT
       def close
         @connected = false
         @socket.close
+        @messages.close
       end
 
       private def send_connect(socket) : Nil
@@ -109,11 +91,12 @@ module MQTT
         when 2 then connack(socket, flags, pktlen)
         else        raise UnexpectedPacket.new
         end
+      rescue ex : IO::TimeoutError
+        raise TimeoutError.new("Connect timeout", cause: ex)
       end
 
       # http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718021
-      def read_loop
-        socket = @socket
+      def read_loop(socket = @socket)
         loop do
           b = socket.read_byte || break
           type = b >> 4          # upper 4 bits
@@ -132,6 +115,13 @@ module MQTT
           when 13    then pingresp(socket, flags, pktlen)
           when 0, 15 then raise "forbidden packet type, reserved"
           else            raise "invalid packet type for server to send"
+          end
+        rescue ex : IO::TimeoutError
+          ping_diff = @last_pingresp - @last_pingreq
+          if ping_diff.total_seconds > @keepalive * 1.5
+            raise TimeoutError.new("No ping response from server in #{ping_diff}", cause: ex)
+          else
+            send_pingreq(socket)
           end
         rescue IO::EOFError
           break
@@ -156,31 +146,18 @@ module MQTT
         end
       end
 
-      private def ping_loop
-        keepalive = @keepalive
-        return if keepalive.zero?
-        loop do
-          sleep keepalive
-          send_pingreq(@socket)
-        end
-      rescue ex
-        STDERR.puts "MQTT keepalive error: #{ex.message}" if @connected
-      ensure
-        close
-      end
-
       private def pingresp(socket, flags, pktlen)
         flags.zero? || raise "invalid pingresp flags"
         pktlen.zero? || raise "invalid pingresp length"
+
+        @last_pingresp = Time.monotonic
         case
         when @pings.send nil
-        else
-          puts "can't send ping"
         end
       end
 
-      def ping
-        send_pingreq(@socket)
+      def ping(socket = @socket)
+        send_pingreq(socket)
         @pings.receive
       end
 
@@ -311,6 +288,7 @@ module MQTT
       end
 
       private def send_pingreq(socket)
+        @last_pingreq = Time.monotonic
         socket.write_byte 0b11000000u8
         socket.write_byte 0u8
         socket.flush

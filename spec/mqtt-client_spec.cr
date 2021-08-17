@@ -13,6 +13,7 @@ describe MQTT::Client do
     mqtt.subscribe("foo", 1)
     mqtt.publish("foo", "bar", 1)
     mqtt.publish("foo", "bar", 1)
+    Fiber.yield
     mqtt.close
     done.receive
     done.receive

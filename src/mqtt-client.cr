@@ -9,36 +9,20 @@ module MQTT
     end
 
     @closed = false
-    @conn_chan = Channel(Connection).new
+    @connectionc = Channel(Connection).new(1)
 
     def start
       @closed = false
-      spawn connect_loop, name: "MQTT Client connect_loop"
+      connection = connect
+      connection.on_message = @on_message
+      @connectionc.send connection
     end
 
     def close
-      with_connection do |_|
-        @closed = true
+      @closed = true
+      with_connection do |conn|
+        conn.close
       end
-    end
-
-    private def connect_loop
-      connection = connect
-      connection.on_message = @on_message
-      loop do
-        break if @closed
-        @conn_chan.send connection
-        connection = @conn_chan.receive
-        break if @closed
-        next if connection.connected?
-        puts "MQTT reconnecting in 1s"
-        sleep 1
-        connection = connect
-        connection.on_message = @on_message
-      end
-    ensure
-      @conn_chan.close
-      connection.try &.close
     end
 
     def connect
@@ -73,6 +57,7 @@ module MQTT
 
     def on_message(&blk : Message -> Nil)
       @on_message = blk
+      with_connection &.on_message = blk
     end
 
     def subscribe(topic : String, qos : Int = 0u8)
@@ -89,11 +74,27 @@ module MQTT
     end
 
     private def with_connection
-      connection = @conn_chan.receive
+      connection = @connectionc.receive
       begin
         yield connection
       ensure
-        @conn_chan.send connection
+        if @closed
+          @connectionc.close
+        else
+          connection = reconnect unless connection.connected?
+          @connectionc.send connection
+        end
+      end
+    end
+
+    private def reconnect
+      loop do
+        connection = connect
+        connection.on_message = @on_message
+        return connection
+      rescue ex
+        STDERR.puts "MQTT-Client reconnect error: #{ex.message}"
+        sleep 1
       end
     end
 
@@ -107,7 +108,7 @@ module MQTT
       socket.sync = false
       socket.read_buffering = true
       socket.buffer_size = 16384
-      socket.read_timeout = @keepalive * 1.5 if @keepalive
+      socket.read_timeout = @keepalive
       socket
     end
 
@@ -132,7 +133,7 @@ module MQTT
         socket.sync = false
         socket.read_buffering = true
         socket.buffer_size = 16384
-        socket.read_timeout = @keepalive * 1.5 if @keepalive
+        socket.read_timeout = @keepalive
       end
     end
   end
