@@ -7,32 +7,18 @@ module MQTT
     def initialize(@host : String, @port = 1883, @tls = false, @client_id = "", @clean_session = true, @user : String? = nil, @password : String? = nil, @will : Message? = nil, @keepalive : Int = 60u16)
       @verify_mode = OpenSSL::SSL::VerifyMode::PEER
       @reconnect_interval = 1
+      @connection = connect
     end
 
-    @closed = false
-    @connectionc = Channel(Connection).new(1)
+    @connection : Connection
+    @lock = Mutex.new
 
-    def start
-      @closed = false
-      connection = connect
-      connection.on_message = @on_message
-      @connectionc.send connection
+    def publish(topic : String, body : Bytes, qos : Int = 0u8, retain = false)
+      publish(Message.new(topic, body, qos.to_u8, retain))
     end
 
-    def close
-      @closed = true
-      with_connection &.close
-      # @connectionc.close
-    end
-
-    def connect
-      if @tls
-        socket = connect_tls(connect_tcp)
-        Connection.new(socket, @client_id, @clean_session, @user, @password, @will, @keepalive.to_u16)
-      else
-        socket = connect_tcp
-        Connection.new(socket, @client_id, @clean_session, @user, @password, @will, @keepalive.to_u16)
-      end
+    def publish(topic : String, body : String, qos : Int = 0u8, retain = false)
+      publish(Message.new(topic, body.to_slice, qos.to_u8, retain))
     end
 
     def publish(*messages : Message)
@@ -43,12 +29,14 @@ module MQTT
       end
     end
 
-    def publish(topic : String, body : Bytes, qos : Int = 0u8, retain = false)
-      publish(Message.new(topic, body, qos.to_u8, retain))
+    def subscribe(topic : String, qos : Int = 0u8)
+      subscribe({topic, qos})
     end
 
-    def publish(topic : String, body : String, qos : Int = 0u8, retain = false)
-      publish(Message.new(topic, body.to_slice, qos.to_u8, retain))
+    def subscribe(*topics : Tuple(String, Int))
+      raise ArgumentError.new("No on_message handler set") unless @on_message
+
+      with_connection &.subscribe(*topics)
     end
 
     def on_message(&blk : Message -> Nil)
@@ -56,26 +44,22 @@ module MQTT
       with_connection &.on_message = blk
     end
 
-    def subscribe(topic : String, qos : Int = 0u8)
-      subscribe({topic, qos})
-    end
-
-    def subscribe(*topics : Tuple(String, Int))
-      raise ArgumentError.new("No on_message handler set") unless @on_message
-      with_connection &.subscribe(*topics)
-    end
-
     def unsubscribe(*topics : String)
       with_connection &.unsubscribe(*topics)
     end
 
+    def ping
+      with_connection &.ping
+    end
+
+    def close
+      with_connection &.close
+    end
+
     private def with_connection
-      connection = @connectionc.receive
-      connection = reconnect unless connection.connected?
-      begin
-        yield connection
-      ensure
-        @connectionc.send connection
+      @lock.synchronize do
+        @connection = reconnect unless @connection.connected?
+        yield @connection
       end
     end
 
@@ -87,6 +71,16 @@ module MQTT
       rescue ex
         STDERR.puts "MQTT-Client reconnect error: #{ex.message}"
         sleep @reconnect_interval
+      end
+    end
+
+    private def connect
+      if @tls
+        socket = connect_tls(connect_tcp)
+        Connection.new(socket, @client_id, @clean_session, @user, @password, @will, @keepalive.to_u16)
+      else
+        socket = connect_tcp
+        Connection.new(socket, @client_id, @clean_session, @user, @password, @will, @keepalive.to_u16)
       end
     end
 
