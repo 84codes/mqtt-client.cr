@@ -96,7 +96,7 @@ module MQTT
       end
 
       # http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718021
-      def read_loop(socket = @socket)
+      private def read_loop(socket = @socket)
         loop do
           b = socket.read_byte || break
           type = b >> 4          # upper 4 bits

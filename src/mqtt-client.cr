@@ -6,6 +6,7 @@ module MQTT
   class Client
     def initialize(@host : String, @port = 1883, @tls = false, @client_id = "", @clean_session = true, @user : String? = nil, @password : String? = nil, @will : Message? = nil, @keepalive : Int = 60u16)
       @verify_mode = OpenSSL::SSL::VerifyMode::PEER
+      @reconnect_interval = 1
     end
 
     @closed = false
@@ -20,9 +21,8 @@ module MQTT
 
     def close
       @closed = true
-      with_connection do |conn|
-        conn.close
-      end
+      with_connection &.close
+      # @connectionc.close
     end
 
     def connect
@@ -33,10 +33,6 @@ module MQTT
         socket = connect_tcp
         Connection.new(socket, @client_id, @clean_session, @user, @password, @will, @keepalive.to_u16)
       end
-    end
-
-    def disconnect
-      @closed = true
     end
 
     def publish(*messages : Message)
@@ -75,15 +71,11 @@ module MQTT
 
     private def with_connection
       connection = @connectionc.receive
+      connection = reconnect unless connection.connected?
       begin
         yield connection
       ensure
-        if @closed
-          @connectionc.close
-        else
-          connection = reconnect unless connection.connected?
-          @connectionc.send connection
-        end
+        @connectionc.send connection
       end
     end
 
@@ -94,7 +86,7 @@ module MQTT
         return connection
       rescue ex
         STDERR.puts "MQTT-Client reconnect error: #{ex.message}"
-        sleep 1
+        sleep @reconnect_interval
       end
     end
 
