@@ -109,7 +109,7 @@ module MQTT
       # http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718021
       private def read_loop(socket = @socket)
         loop do
-          b = socket.read_byte || raise IO::EOFError.new
+          b = socket.read_byte || break
           type = b >> 4          # upper 4 bits
           flags = b & 0b00001111 # lower 4 bits
           pktlen = decode_length(socket)
