@@ -135,7 +135,6 @@ module MQTT
             send_pingreq(socket)
           end
         rescue IO::EOFError
-          puts "Disconnected by server"
           break
         end
       rescue ex
