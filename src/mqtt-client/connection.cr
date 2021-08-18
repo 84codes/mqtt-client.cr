@@ -34,6 +34,7 @@ module MQTT
         @connected = false
         @socket.close
         @messages.close
+        @acks.close
       end
 
       private def send_connect(socket) : Nil
