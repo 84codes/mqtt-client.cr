@@ -13,6 +13,16 @@ module MQTT
       @last_pingresp = Time.monotonic
       getter? connected = false
 
+      def self.new(host : String, port = 1883, tls = false, client_id = "", clean_session = true, user : String? = nil, password : String? = nil, will : Message? = nil, keepalive : Int = 60u16)
+        if tls
+          socket = connect_tls(connect_tcp(host, port, keepalive), OpenSSL::SSL::VerifyMode::PEER, host)
+          Connection.new(socket, client_id, clean_session, user, password, will, keepalive.to_u16)
+        else
+          socket = connect_tcp(host, port, keepalive)
+          Connection.new(socket, client_id, clean_session, user, password, will, keepalive.to_u16)
+        end
+      end
+
       def initialize(@socket : IO, @client_id = "", @clean_session = true,
                      @user : String? = nil, @password : String? = nil,
                      @will : Message? = nil, @keepalive : UInt16 = 60u16)
@@ -99,7 +109,7 @@ module MQTT
       # http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718021
       private def read_loop(socket = @socket)
         loop do
-          b = socket.read_byte || break
+          b = socket.read_byte || raise IO::EOFError.new
           type = b >> 4          # upper 4 bits
           flags = b & 0b00001111 # lower 4 bits
           pktlen = decode_length(socket)
@@ -125,6 +135,7 @@ module MQTT
             send_pingreq(socket)
           end
         rescue IO::EOFError
+          puts "Disconnected by server"
           break
         end
       rescue ex
@@ -409,6 +420,36 @@ module MQTT
           socket.write_byte b
           break if length <= 0
         end
+      end
+
+      private def self.connect_tcp(host, port, keepalive)
+        socket = TCPSocket.new(host, port, connect_timeout: 30)
+        socket.keepalive = true
+        socket.tcp_nodelay = false
+        socket.tcp_keepalive_idle = 60
+        socket.tcp_keepalive_count = 3
+        socket.tcp_keepalive_interval = 10
+        socket.sync = false
+        socket.read_buffering = true
+        socket.buffer_size = 16384
+        socket.read_timeout = keepalive
+        socket
+      end
+
+      private def self.connect_tls(socket, verify_mode : LibSSL::VerifyMode, host : String)
+        ctx = OpenSSL::SSL::Context::Client.new
+        ctx.verify_mode = verify_mode
+        connect_tls(socket, ctx, host)
+      end
+
+      private def self.connect_tls(socket, ctx, host)
+        socket.sync = true
+        socket.read_buffering = false
+        tls_socket = OpenSSL::SSL::Socket::Client.new(socket, ctx, sync_close: true, hostname: host)
+        tls_socket.sync = false
+        tls_socket.read_buffering = true
+        tls_socket.buffer_size = 16384
+        tls_socket
       end
     end
   end
