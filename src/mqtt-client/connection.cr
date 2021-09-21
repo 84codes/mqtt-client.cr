@@ -42,6 +42,7 @@ module MQTT
 
       def disconnect
         send_disconnect(@socket)
+        @socket.close
       end
 
       def close
@@ -138,7 +139,7 @@ module MQTT
           else
             send_pingreq(socket)
           end
-        rescue IO::EOFError
+        rescue IO::Error
           break
         end
       rescue ex
