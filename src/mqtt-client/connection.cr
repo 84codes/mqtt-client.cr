@@ -40,6 +40,10 @@ module MQTT
         end
       end
 
+      def disconnect
+        send_disconnect(@socket)
+      end
+
       def close
         @connected = false
         @socket.close
@@ -202,6 +206,12 @@ module MQTT
         end
         socket.flush
         id
+      end
+
+      private def send_disconnect(socket) : Nil
+        socket.write_byte 0b11100000u8
+        socket.write_byte 0u8
+        socket.flush
       end
 
       def unsubscribe(*topics : String)

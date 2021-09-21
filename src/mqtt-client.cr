@@ -52,6 +52,10 @@ module MQTT
       with_connection &.ping
     end
 
+    def disconnect
+      with_connection &.disconnect
+    end
+
     def close
       with_connection &.close
     end
