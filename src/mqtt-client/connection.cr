@@ -26,6 +26,9 @@ module MQTT
       def initialize(@socket : IO, @client_id = "", @clean_session = true,
                      @user : String? = nil, @password : String? = nil,
                      @will : Message? = nil, @keepalive : UInt16 = 60u16)
+      end
+
+      def start
         send_connect(@socket)
         expect_connack(@socket)
         spawn read_loop, name: "mqtt-client read_loop"

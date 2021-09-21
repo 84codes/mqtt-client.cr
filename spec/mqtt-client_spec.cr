@@ -9,6 +9,7 @@ describe MQTT::Client do
       msg.body.should eq "bar".to_slice
       done.send nil
     end
+    mqtt.start
     mqtt.subscribe("foo", 1)
     mqtt.publish("foo", "bar", 1)
     mqtt.publish("foo", "bar", 1)
@@ -22,12 +23,14 @@ describe MQTT::Client do
 
   it "can ping" do
     mqtt = MQTT::Client.new("localhost", 1883)
+    mqtt.start
     mqtt.ping
     mqtt.@connection.@last_pingresp.should be_close Time.monotonic, 1.millisecond
   end
 
   it "can keepalive" do
     mqtt = MQTT::Client.new("localhost", 1883, keepalive: 1u16)
+    mqtt.start
     sleep 1.5
   ensure
     mqtt.try &.close
