@@ -8,12 +8,6 @@ module MQTT
       @verify_mode = OpenSSL::SSL::VerifyMode::PEER
       @reconnect_interval = 1
       @connection = connect
-      @connection_started = false
-    end
-
-    def start
-      @connection.start
-      @connection_started = true
     end
 
     @connection : Connection
@@ -47,7 +41,7 @@ module MQTT
 
     def on_message(&blk : Message -> Nil)
       @on_message = blk
-      @connection.on_message = @on_message
+      with_connection &.on_message = blk
     end
 
     def unsubscribe(*topics : String)
@@ -67,7 +61,6 @@ module MQTT
     end
 
     private def with_connection
-      raise ConnectError.new("Connection has not been started") unless @connection_started
       @lock.synchronize do
         @connection = reconnect unless @connection.connected?
         yield @connection
