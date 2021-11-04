@@ -4,7 +4,7 @@ require "./errors"
 module MQTT
   class Client
     struct SocketOptions
-      getter buffer_size, recv_buffer_size, send_buffer_size
+      property buffer_size, recv_buffer_size, send_buffer_size
       def initialize(@buffer_size : Int32 = 1024,
                      @recv_buffer_size : Int32 = 512,
                      @send_buffer_size : Int32 = 256)
