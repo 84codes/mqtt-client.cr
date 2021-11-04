@@ -1,8 +1,9 @@
 name: mqtt-client
-version: 0.1.2
+version: 0.1.3
 
 authors:
   - Carl Hörberg <carl@84codes.com>
+  - Jon Börjesson <jon@84codes.com>
 
 crystal: 1.1.1
 
