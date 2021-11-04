@@ -4,7 +4,10 @@ require "./mqtt-client/connection"
 
 module MQTT
   class Client
-    def initialize(@host : String, @port = 1883, @tls = false, @client_id = "", @clean_session = true, @user : String? = nil, @password : String? = nil, @will : Message? = nil, @keepalive : Int = 60u16)
+    def initialize(@host : String, @port = 1883, @tls = false, @client_id = "",
+                   @clean_session = true, @user : String? = nil,
+                   @password : String? = nil, @will : Message? = nil,
+                   @keepalive : Int = 60u16, @sock_opts = SocketOptions.new)
       @verify_mode = OpenSSL::SSL::VerifyMode::PEER
       @reconnect_interval = 1
       @connection = connect
@@ -35,7 +38,6 @@ module MQTT
 
     def subscribe(*topics : Tuple(String, Int))
       raise ArgumentError.new("No on_message handler set") unless @on_message
-
       with_connection &.subscribe(*topics)
     end
 
@@ -79,7 +81,7 @@ module MQTT
     end
 
     private def connect
-      Connection.new(@host, @port, @tls, @client_id, @clean_session, @user, @password, @will, @keepalive.to_u16)
+      Connection.new(@host, @port, @tls, @client_id, @clean_session, @user, @password, @will, @keepalive.to_u16, @sock_opts)
     end
   end
 end

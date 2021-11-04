@@ -3,6 +3,14 @@ require "./errors"
 
 module MQTT
   class Client
+    struct SocketOptions
+      getter buffer_size, recv_buffer_size, send_buffer_size
+      def initialize(@buffer_size : Int32 = 1024,
+                     @recv_buffer_size : Int32 = 512,
+                     @send_buffer_size : Int32 = 256)
+      end
+    end
+
     class Connection
       @acks = Channel(UInt16).new
       @pings = Channel(Nil).new
@@ -13,12 +21,12 @@ module MQTT
       @last_pingresp = Time.monotonic
       getter? connected = false
 
-      def self.new(host : String, port = 1883, tls = false, client_id = "", clean_session = true, user : String? = nil, password : String? = nil, will : Message? = nil, keepalive : Int = 60u16)
+      def self.new(host : String, port = 1883, tls = false, client_id = "", clean_session = true, user : String? = nil, password : String? = nil, will : Message? = nil, keepalive : Int = 60u16, sock_opts = SocketOptions.new)
         if tls
-          socket = connect_tls(connect_tcp(host, port, keepalive), OpenSSL::SSL::VerifyMode::PEER, host)
+          socket = connect_tls(connect_tcp(host, port, keepalive, sock_opts), OpenSSL::SSL::VerifyMode::PEER, host)
           Connection.new(socket, client_id, clean_session, user, password, will, keepalive.to_u16)
         else
-          socket = connect_tcp(host, port, keepalive)
+          socket = connect_tcp(host, port, keepalive, sock_opts)
           Connection.new(socket, client_id, clean_session, user, password, will, keepalive.to_u16)
         end
       end
@@ -432,7 +440,7 @@ module MQTT
         end
       end
 
-      private def self.connect_tcp(host, port, keepalive)
+      private def self.connect_tcp(host, port, keepalive, sock_opts : SocketOptions)
         socket = TCPSocket.new(host, port, connect_timeout: 30)
         socket.keepalive = true
         socket.tcp_nodelay = false
@@ -441,7 +449,9 @@ module MQTT
         socket.tcp_keepalive_interval = 10
         socket.sync = false
         socket.read_buffering = true
-        socket.buffer_size = 16384
+        socket.buffer_size = sock_opts.buffer_size
+        socket.recv_buffer_size = sock_opts.recv_buffer_size
+        socket.send_buffer_size = sock_opts.send_buffer_size
         socket.read_timeout = keepalive
         socket
       end
