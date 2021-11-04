@@ -18,7 +18,7 @@ module MQTT
       @on_message : Proc(Message, Nil)?
       @packet_id = 0u16
       @last_pingreq = Time.monotonic
-      @last_pingresp = Time.monotonic
+      @last_packet = Time.monotonic
       getter? connected = false
 
       def self.new(host : String, port = 1883, tls = false, client_id = "", clean_session = true, user : String? = nil, password : String? = nil, will : Message? = nil, keepalive : Int = 60u16, sock_opts = SocketOptions.new)
@@ -140,8 +140,9 @@ module MQTT
           when 0, 15 then raise "forbidden packet type, reserved"
           else            raise "invalid packet type for server to send"
           end
+          @last_packet = Time.monotonic
         rescue ex : IO::TimeoutError
-          ping_diff = @last_pingresp - @last_pingreq
+          ping_diff = @last_packet - @last_pingreq
           if ping_diff.total_seconds > @keepalive * 1.5
             raise TimeoutError.new("No ping response from server in #{ping_diff}", cause: ex)
           else
@@ -174,7 +175,6 @@ module MQTT
         flags.zero? || raise "invalid pingresp flags"
         pktlen.zero? || raise "invalid pingresp length"
 
-        @last_pingresp = Time.monotonic
         case
         when @pings.send nil
         end
