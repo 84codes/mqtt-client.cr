@@ -17,7 +17,6 @@ module MQTT
       @messages = Channel(Message).new(32)
       @on_message : Proc(Message, Nil)?
       @packet_id = 0u16
-      @last_pingreq = Time.monotonic
       @last_packet = Time.monotonic
       getter? connected = false
 
@@ -142,7 +141,7 @@ module MQTT
           end
           @last_packet = Time.monotonic
         rescue ex : IO::TimeoutError
-          ping_diff = @last_packet - @last_pingreq
+          ping_diff = @last_packet - Time.monotonic
           if ping_diff.total_seconds > @keepalive * 1.5
             raise TimeoutError.new("No ping response from server in #{ping_diff}", cause: ex)
           else
@@ -318,7 +317,6 @@ module MQTT
       end
 
       private def send_pingreq(socket)
-        @last_pingreq = Time.monotonic
         socket.write_byte 0b11000000u8
         socket.write_byte 0u8
         socket.flush
