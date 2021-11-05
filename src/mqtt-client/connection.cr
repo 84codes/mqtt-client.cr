@@ -13,11 +13,11 @@ module MQTT
 
     class Connection
       @acks = Channel(UInt16).new
-      @pings = Channel(Nil).new
       @messages = Channel(Message).new(32)
       @on_message : Proc(Message, Nil)?
       @packet_id = 0u16
-      @last_packet = Time.monotonic
+      @last_packet_received = Time.monotonic
+      @last_packet_sent = Time.monotonic
       getter? connected = false
 
       def self.new(host : String, port = 1883, tls = false, client_id = "", clean_session = true, user : String? = nil, password : String? = nil, will : Message? = nil, keepalive : Int = 60u16, sock_opts = SocketOptions.new)
@@ -102,6 +102,7 @@ module MQTT
         send_string(socket, @password.not_nil!) if @password
 
         socket.flush
+        update_last_packet_sent
       end
 
       private def expect_connack(socket)
@@ -120,6 +121,7 @@ module MQTT
 
       # http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718021
       private def read_loop(socket = @socket)
+        now = Time::Span.zero
         loop do
           b = socket.read_byte || break
           type = b >> 4          # upper 4 bits
@@ -139,13 +141,23 @@ module MQTT
           when 0, 15 then raise "forbidden packet type, reserved"
           else            raise "invalid packet type for server to send"
           end
-          @last_packet = Time.monotonic
+
+          if @keepalive.positive?
+            now = Time.monotonic
+            @last_packet_received = now
+            if (now - @last_packet_sent).total_seconds > @keepalive * 0.9
+              send_pingreq(socket)
+            end
+          end
         rescue ex : IO::TimeoutError
-          ping_diff = @last_packet - Time.monotonic
-          if ping_diff.total_seconds > @keepalive * 1.5
-            raise TimeoutError.new("No ping response from server in #{ping_diff}", cause: ex)
-          else
-            send_pingreq(socket)
+          if @keepalive.positive?
+            now = Time.monotonic
+            ping_diff = now - @last_packet_received
+            if ping_diff.total_seconds > @keepalive * 1.5
+              raise TimeoutError.new("No ping response from server in #{ping_diff}", cause: ex)
+            else
+              send_pingreq(socket)
+            end
           end
         rescue IO::Error
           break
@@ -173,15 +185,10 @@ module MQTT
       private def pingresp(socket, flags, pktlen)
         flags.zero? || raise "invalid pingresp flags"
         pktlen.zero? || raise "invalid pingresp length"
-
-        case
-        when @pings.send nil
-        end
       end
 
       def ping(socket = @socket)
         send_pingreq(socket)
-        @pings.receive
       end
 
       def on_message=(blk : Proc(Message, Nil)?)
@@ -213,6 +220,7 @@ module MQTT
           socket.write_byte qos.to_u8
         end
         socket.flush
+        update_last_packet_sent
         id
       end
 
@@ -220,6 +228,7 @@ module MQTT
         socket.write_byte 0b11100000u8
         socket.write_byte 0u8
         socket.flush
+        update_last_packet_sent
       end
 
       def unsubscribe(*topics : String)
@@ -246,6 +255,7 @@ module MQTT
           send_string(socket, topic)
         end
         socket.flush
+        update_last_packet_sent
         id
       end
 
@@ -280,7 +290,7 @@ module MQTT
         id = send_next_packet_id(socket) if qos > 0
         socket.write body
         socket.flush
-
+        update_last_packet_sent
         id
       end
 
@@ -320,6 +330,7 @@ module MQTT
         socket.write_byte 0b11000000u8
         socket.write_byte 0u8
         socket.flush
+        update_last_packet_sent
       end
 
       private def puback(socket, flags, pktlen)
@@ -378,6 +389,7 @@ module MQTT
         socket.write_byte 2u8        # length
         socket.write_bytes packet_id, IO::ByteFormat::NetworkEndian
         socket.flush
+        update_last_packet_sent
       end
 
       private def send_pubrec(socket, packet_id)
@@ -385,6 +397,7 @@ module MQTT
         socket.write_byte 2u8        # length
         socket.write_bytes packet_id, IO::ByteFormat::NetworkEndian
         socket.flush
+        update_last_packet_sent
       end
 
       private def send_pubrel(socket, packet_id)
@@ -392,6 +405,7 @@ module MQTT
         socket.write_byte 2u8        # length
         socket.write_bytes packet_id, IO::ByteFormat::NetworkEndian
         socket.flush
+        update_last_packet_sent
       end
 
       private def send_pubcomp(socket, packet_id)
@@ -399,6 +413,7 @@ module MQTT
         socket.write_byte 2u8        # length
         socket.write_bytes packet_id, IO::ByteFormat::NetworkEndian
         socket.flush
+        update_last_packet_sent
       end
 
       private def send_string(socket : IO, str : String)
@@ -413,6 +428,10 @@ module MQTT
 
       private def read_int(socket)
         socket.read_bytes UInt16, IO::ByteFormat::NetworkEndian
+      end
+
+      private def update_last_packet_sent
+        @last_packet_sent = Time.monotonic if @keepalive.positive?
       end
 
       private def decode_length(socket)
