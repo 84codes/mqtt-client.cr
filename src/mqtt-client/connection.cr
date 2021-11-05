@@ -449,9 +449,9 @@ module MQTT
         socket.tcp_keepalive_interval = 10
         socket.sync = false
         socket.read_buffering = true
-        socket.buffer_size = sock_opts.buffer_size
-        socket.recv_buffer_size = sock_opts.recv_buffer_size
-        socket.send_buffer_size = sock_opts.send_buffer_size
+        socket.buffer_size = sock_opts.buffer_size if sock_opts.buffer_size.positive?
+        socket.recv_buffer_size = sock_opts.recv_buffer_size if sock_opts.recv_buffer_size.positive?
+        socket.send_buffer_size = sock_opts.send_buffer_size if sock_opts.send_buffer_size.positive?
         socket.read_timeout = keepalive
         socket
       end
