@@ -41,7 +41,7 @@ module MQTT
       with_connection &.subscribe(*topics)
     end
 
-    def on_message(&blk : Message -> Nil)
+    def on_message(&blk : (Message, Acker) -> Nil)
       @on_message = blk
       with_connection &.on_message = blk
     end

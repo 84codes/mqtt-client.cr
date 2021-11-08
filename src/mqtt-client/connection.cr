@@ -3,8 +3,21 @@ require "./errors"
 
 module MQTT
   class Client
+    struct Acker
+      def initialize(@conn : Connection, @qos : UInt8, @packet_id : UInt16?)
+      end
+
+      def ack
+        case @qos
+        when 1 then @conn.puback(@packet_id.not_nil!)
+        when 2 then @conn.pubrec(@packet_id.not_nil!)
+        end
+      end
+    end
+
     struct SocketOptions
       property buffer_size, recv_buffer_size, send_buffer_size
+
       def initialize(@buffer_size : Int32 = 1024,
                      @recv_buffer_size : Int32 = 512,
                      @send_buffer_size : Int32 = 256)
@@ -13,8 +26,9 @@ module MQTT
 
     class Connection
       @acks = Channel(UInt16).new
-      @messages = Channel(Message).new(32)
-      @on_message : Proc(Message, Nil)?
+      @pub_acks = Channel(UInt16).new # outgoing acks
+      @on_message : Proc(Message, Acker, Nil)?
+      @messages = Channel({Message, Acker}).new(16)
       @packet_id = 0u16
       @last_packet_received = Time.monotonic
       @last_packet_sent = Time.monotonic
@@ -33,18 +47,11 @@ module MQTT
       def initialize(@socket : IO, @client_id = "", @clean_session = true,
                      @user : String? = nil, @password : String? = nil,
                      @will : Message? = nil, @keepalive : UInt16 = 60u16)
-        send_connect(@socket)
-        expect_connack(@socket)
+        send_connect
+        expect_connack
         spawn read_loop, name: "mqtt-client read_loop"
         spawn message_loop, name: "mqtt-client message_loop"
         @connected = true
-      end
-
-      private def message_loop
-        loop do
-          message = @messages.receive? || break
-          @on_message.try &.call(message)
-        end
       end
 
       def disconnect
@@ -59,7 +66,8 @@ module MQTT
         @acks.close
       end
 
-      private def send_connect(socket) : Nil
+      private def send_connect : Nil
+        socket = @socket
         socket.write_byte 0b00010000u8 # type + flags
 
         length = 10
@@ -105,22 +113,31 @@ module MQTT
         update_last_packet_sent
       end
 
-      private def expect_connack(socket)
+      private def expect_connack
+        socket = @socket
         b = socket.read_byte || raise IO::EOFError.new
         type = b >> 4          # upper 4 bits
         flags = b & 0b00001111 # lower 4 bits
         pktlen = decode_length(socket)
 
         case type
-        when 2 then connack(socket, flags, pktlen)
+        when 2 then connack(flags, pktlen)
         else        raise UnexpectedPacket.new
         end
       rescue ex : IO::TimeoutError
         raise TimeoutError.new("Connect timeout", cause: ex)
       end
 
+      def message_loop
+        loop do
+          message, acker = @messages.receive? || break
+          @on_message.try &.call(message, acker)
+        end
+      end
+
       # http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718021
-      private def read_loop(socket = @socket)
+      private def read_loop
+        socket = @socket
         now = Time::Span.zero
         loop do
           b = socket.read_byte || break
@@ -129,15 +146,15 @@ module MQTT
           pktlen = decode_length(socket)
 
           case type
-          when 2     then connack(socket, flags, pktlen)
-          when 3     then publish(socket, flags, pktlen)
-          when 4     then puback(socket, flags, pktlen)
-          when 5     then pubrec(socket, flags, pktlen)
-          when 6     then pubrel(socket, flags, pktlen)
-          when 7     then pubcomp(socket, flags, pktlen)
-          when 9     then suback(socket, flags, pktlen)
-          when 11    then unsuback(socket, flags, pktlen)
-          when 13    then pingresp(socket, flags, pktlen)
+          when 2     then connack(flags, pktlen)
+          when 3     then publish(flags, pktlen)
+          when 4     then puback(flags, pktlen)
+          when 5     then pubrec(flags, pktlen)
+          when 6     then pubrel(flags, pktlen)
+          when 7     then pubcomp(flags, pktlen)
+          when 9     then suback(flags, pktlen)
+          when 11    then unsuback(flags, pktlen)
+          when 13    then pingresp(flags, pktlen)
           when 0, 15 then raise "forbidden packet type, reserved"
           else            raise "invalid packet type for server to send"
           end
@@ -146,7 +163,7 @@ module MQTT
             now = Time.monotonic
             @last_packet_received = now
             if (now - @last_packet_sent).total_seconds > @keepalive * 0.9
-              send_pingreq(socket)
+              send_pingreq
             end
           end
         rescue ex : IO::TimeoutError
@@ -156,7 +173,7 @@ module MQTT
             if ping_diff.total_seconds > @keepalive * 1.5
               raise TimeoutError.new("No ping response from server in #{ping_diff}", cause: ex)
             else
-              send_pingreq(socket)
+              send_pingreq
             end
           end
         rescue IO::Error
@@ -168,7 +185,8 @@ module MQTT
         close
       end
 
-      private def connack(socket, flags, pktlen)
+      private def connack(flags, pktlen)
+        socket = @socket
         session_present = (socket.read_byte || raise IO::EOFError.new) == 1u8
         return_code = socket.read_byte || raise IO::EOFError.new
         case return_code
@@ -182,20 +200,28 @@ module MQTT
         end
       end
 
-      private def pingresp(socket, flags, pktlen)
+      private def pingresp(flags, pktlen)
         flags.zero? || raise "invalid pingresp flags"
         pktlen.zero? || raise "invalid pingresp length"
       end
 
-      def ping(socket = @socket)
-        send_pingreq(socket)
+      def ping
+        send_pingreq
       end
 
-      def on_message=(blk : Proc(Message, Nil)?)
+      def puback(packet_id : UInt16)
+        send_puback(packet_id)
+      end
+
+      def pubrec(packet_id : UInt16)
+        send_pubrec(packet_id)
+      end
+
+      def on_message=(blk : Proc(Message, Acker, Nil)?)
         @on_message = blk
       end
 
-      def on_message(&blk : Message -> Nil)
+      def on_message(&blk : Proc(Message, Acker, Nil))
         @on_message = blk
       end
 
@@ -306,7 +332,8 @@ module MQTT
         @packet_id = id
       end
 
-      private def publish(socket, flags, pktlen)
+      private def publish(flags, pktlen)
+        socket = @socket
         dup = flags.bit(3) == 1
         qos = (flags & 0b00000110) >> 1
         retain = flags.bit(0) == 1
@@ -318,55 +345,53 @@ module MQTT
         body = Bytes.new(pktlen - header_len)
         socket.read_fully(body)
 
-        @messages.send Message.new(topic, body, qos, retain, dup)
-
-        case qos
-        when 1 then send_puback(socket, packet_id.not_nil!)
-        when 2 then send_pubrec(socket, packet_id.not_nil!)
-        end
+        @messages.send({Message.new(topic, body, qos, retain, dup),
+                        Acker.new(self, qos, packet_id)})
       end
 
-      private def send_pingreq(socket)
+      private def send_pingreq
+        socket = @socket
         socket.write_byte 0b11000000u8
         socket.write_byte 0u8
         socket.flush
         update_last_packet_sent
       end
 
-      private def puback(socket, flags, pktlen)
+      private def puback(flags, pktlen)
         flags.zero? || raise "invalid puback flags"
         pktlen == 2 || raise "invalid puback length"
 
-        packet_id = read_int(socket)
+        packet_id = read_int(@socket)
         @acks.send packet_id
       end
 
-      private def pubrec(socket, flags, pktlen)
+      private def pubrec(flags, pktlen)
         flags.zero? || raise "invalid pubrec flags"
         pktlen == 2 || raise "invalid pubrec length"
 
-        packet_id = read_int(socket)
-        send_pubrel(socket, packet_id)
+        packet_id = read_int(@socket)
+        send_pubrel(packet_id)
       end
 
-      private def pubrel(socket, flags, pktlen)
+      private def pubrel(flags, pktlen)
         flags.zero? || raise "invalid pubrel flags"
         pktlen == 2 || raise "invalid pubrel length"
 
-        packet_id = read_int(socket)
+        packet_id = read_int(@socket)
         @acks.send packet_id
       end
 
-      private def pubcomp(socket, flags, pktlen)
+      private def pubcomp(flags, pktlen)
         flags.zero? || raise "invalid pubcomp flags"
         pktlen == 2 || raise "invalid pubcomp length"
 
-        packet_id = read_int(socket)
+        packet_id = read_int(@socket)
         @acks.send packet_id
       end
 
-      private def suback(socket, flags, pktlen)
+      private def suback(flags, pktlen)
         flags.zero? || raise "invalid suback flags"
+        socket = @socket
         packet_id = read_int(socket)
 
         qos_len = pktlen - 2
@@ -376,15 +401,16 @@ module MQTT
         @acks.send packet_id
       end
 
-      private def unsuback(socket, flags, pktlen)
+      private def unsuback(flags, pktlen)
         flags.zero? || raise "invalid puback flags"
         pktlen == 2 || raise "invalid puback length"
 
-        packet_id = read_int(socket)
+        packet_id = read_int(@socket)
         @acks.send packet_id
       end
 
-      private def send_puback(socket, packet_id)
+      private def send_puback(packet_id)
+        socket = @socket
         socket.write_byte 0b01000000 # type + flags
         socket.write_byte 2u8        # length
         socket.write_bytes packet_id, IO::ByteFormat::NetworkEndian
@@ -392,7 +418,8 @@ module MQTT
         update_last_packet_sent
       end
 
-      private def send_pubrec(socket, packet_id)
+      private def send_pubrec(packet_id)
+        socket = @socket
         socket.write_byte 0b01100010 # type + flags
         socket.write_byte 2u8        # length
         socket.write_bytes packet_id, IO::ByteFormat::NetworkEndian
@@ -400,7 +427,8 @@ module MQTT
         update_last_packet_sent
       end
 
-      private def send_pubrel(socket, packet_id)
+      private def send_pubrel(packet_id)
+        socket = @socket
         socket.write_byte 0b01110010 # type + flags
         socket.write_byte 2u8        # length
         socket.write_bytes packet_id, IO::ByteFormat::NetworkEndian
@@ -408,7 +436,8 @@ module MQTT
         update_last_packet_sent
       end
 
-      private def send_pubcomp(socket, packet_id)
+      private def send_pubcomp(packet_id)
+        socket = @socket
         socket.write_byte 0b01110000 # type + flags
         socket.write_byte 2u8        # length
         socket.write_bytes packet_id, IO::ByteFormat::NetworkEndian
