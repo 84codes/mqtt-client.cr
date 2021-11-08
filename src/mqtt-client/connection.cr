@@ -5,13 +5,16 @@ module MQTT
   class Client
     struct Acker
       def initialize(@conn : Connection, @qos : UInt8, @packet_id : UInt16?)
+        @acked = false
       end
 
       def ack
+        return if @acked
         case @qos
         when 1 then @conn.puback(@packet_id.not_nil!)
         when 2 then @conn.pubrec(@packet_id.not_nil!)
         end
+        @acked = true
       end
     end
 
@@ -34,19 +37,22 @@ module MQTT
       @last_packet_sent = Time.monotonic
       getter? connected = false
 
-      def self.new(host : String, port = 1883, tls = false, client_id = "", clean_session = true, user : String? = nil, password : String? = nil, will : Message? = nil, keepalive : Int = 60u16, sock_opts = SocketOptions.new)
+      def self.new(host : String, port = 1883, tls = false, client_id = "", clean_session = true,
+                   user : String? = nil, password : String? = nil, will : Message? = nil,
+                   keepalive : Int = 60u16, autoack = true, sock_opts = SocketOptions.new)
         if tls
           socket = connect_tls(connect_tcp(host, port, keepalive, sock_opts), OpenSSL::SSL::VerifyMode::PEER, host)
-          Connection.new(socket, client_id, clean_session, user, password, will, keepalive.to_u16)
+          Connection.new(socket, client_id, clean_session, user, password, will, autoack, keepalive.to_u16)
         else
           socket = connect_tcp(host, port, keepalive, sock_opts)
-          Connection.new(socket, client_id, clean_session, user, password, will, keepalive.to_u16)
+          Connection.new(socket, client_id, clean_session, user, password, will, autoack, keepalive.to_u16)
         end
       end
 
       def initialize(@socket : IO, @client_id = "", @clean_session = true,
                      @user : String? = nil, @password : String? = nil,
-                     @will : Message? = nil, @keepalive : UInt16 = 60u16)
+                     @will : Message? = nil, @keepalive : UInt16 = 60u16,
+                     @autoack = false)
         send_connect
         expect_connack
         spawn read_loop, name: "mqtt-client read_loop"
@@ -132,6 +138,7 @@ module MQTT
         loop do
           message, acker = @messages.receive? || break
           @on_message.try &.call(message, acker)
+          acker.ack if @autoack
         end
       end
 
