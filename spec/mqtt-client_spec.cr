@@ -23,7 +23,7 @@ describe MQTT::Client do
   it "can ping" do
     mqtt = MQTT::Client.new("localhost", 1883)
     mqtt.ping
-    mqtt.@connection.@last_pingresp.should be_close Time.monotonic, 1.millisecond
+    mqtt.@connection.@last_packet_sent.should be_close Time.monotonic, 1.millisecond
   end
 
   it "can keepalive" do
