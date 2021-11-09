@@ -7,7 +7,8 @@ module MQTT
     def initialize(@host : String, @port = 1883, @tls = false, @client_id = "",
                    @clean_session = true, @user : String? = nil,
                    @password : String? = nil, @will : Message? = nil,
-                   @keepalive : Int = 60u16, @sock_opts = SocketOptions.new)
+                   @keepalive : Int = 60u16, @autoack = false,
+                   @sock_opts = SocketOptions.new)
       @verify_mode = OpenSSL::SSL::VerifyMode::PEER
       @reconnect_interval = 1
       @connection = connect
@@ -41,7 +42,7 @@ module MQTT
       with_connection &.subscribe(*topics)
     end
 
-    def on_message(&blk : Message -> Nil)
+    def on_message(&blk : (Message, Acker) -> Nil)
       @on_message = blk
       with_connection &.on_message = blk
     end
@@ -81,7 +82,9 @@ module MQTT
     end
 
     private def connect
-      Connection.new(@host, @port, @tls, @client_id, @clean_session, @user, @password, @will, @keepalive.to_u16, @sock_opts)
+      Connection.new(@host, @port, @tls, @client_id, @clean_session,
+        @user, @password, @will, @keepalive.to_u16, @autoack,
+        @sock_opts)
     end
   end
 end
