@@ -7,7 +7,7 @@ module MQTT
     def initialize(@host : String, @port = 1883, @tls = false, @client_id = "",
                    @clean_session = true, @user : String? = nil,
                    @password : String? = nil, @will : Message? = nil,
-                   @keepalive : Int = 60u16, @autoack = false,
+                   @keepalive : Int = 60u16, @autoack = true,
                    @sock_opts = SocketOptions.new)
       @verify_mode = OpenSSL::SSL::VerifyMode::PEER
       @reconnect_interval = 1
