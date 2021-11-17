@@ -42,7 +42,7 @@ module MQTT
                    keepalive : Int = 60u16, autoack = true, sock_opts = SocketOptions.new)
         if tls
           socket = connect_tls(connect_tcp(host, port, keepalive, sock_opts), OpenSSL::SSL::VerifyMode::PEER, host)
-          Connection.new(socket, client_id, clean_session, user, password, will,  keepalive.to_u16, autoack)
+          Connection.new(socket, client_id, clean_session, user, password, will, keepalive.to_u16, autoack)
         else
           socket = connect_tcp(host, port, keepalive, sock_opts)
           Connection.new(socket, client_id, clean_session, user, password, will, keepalive.to_u16, autoack)
