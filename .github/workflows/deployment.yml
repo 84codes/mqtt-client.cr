@@ -1,0 +1,29 @@
+name: Deployment
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - src/
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    container:
+      image: 84codes/crystal:latest-alpine
+    steps:
+      - name: Install rsync
+        run: apk add --no-cache rsync
+      - uses: actions/checkout@v2
+      - name: Install shards
+        run: shards install
+      - name: Build docs
+        run:  crystal docs
+      - name: Deploy docs
+        uses: JamesIves/github-pages-deploy-action@4.1.5
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: gh-pages
+          FOLDER: docs
+          SINGLE_COMMIT: true

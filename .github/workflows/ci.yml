@@ -1,0 +1,48 @@
+name: CI
+on: [push]
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Crystal Ameba Linter
+        uses: crystal-ameba/github-action@v0.2.12
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  spec:
+    name: Spec
+    runs-on: ubuntu-latest
+    container: 84codes/crystal:latest-ubuntu-20.04
+    services:
+      myramq:
+        image: cloudamqp/myramq
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Shards install
+        run: shards install
+
+      - name: Spec
+        run: crystal spec --no-color --order random
+        env:
+          MQTT_HOST: myramq
+
+  format:
+    name: Formatting
+    runs-on: ubuntu-latest
+    container: 84codes/crystal:latest-ubuntu-20.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Format check
+        run: crystal tool format --check
