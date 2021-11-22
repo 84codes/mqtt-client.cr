@@ -254,10 +254,11 @@ module MQTT
       end
 
       private def wait_for_id(id : UInt16)
+        acks = @acks
         loop do
-          ack_id = @acks.receive
+          ack_id = acks.receive
           break if ack_id == id
-          @acks.send ack_id # if unexpected id, put it back on the channel
+          acks.send ack_id # if unexpected id, put it back on the channel
         end
       end
 
