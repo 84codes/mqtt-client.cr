@@ -7,12 +7,12 @@ module MQTT
 
     class Connection
       @acks = Channel(UInt16).new
-      @pub_acks = Channel(UInt16).new # outgoing acks
       @on_message : Proc(ReceivedMessage, Nil)?
       @messages = Channel(ReceivedMessage).new(16)
-      @packet_id = 0u16
       @last_packet_received = Time.monotonic
       @last_packet_sent = Time.monotonic
+      @packet_id = 0u16
+      @keepalive = 60u16
       getter? connected = false
 
       def self.new(host : String, port = 1883, tls = false, client_id = "", clean_session = true,
