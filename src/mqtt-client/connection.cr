@@ -129,7 +129,6 @@ module MQTT
 
       # http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718021
       private def read_loop(socket = @socket)
-        now = Time::Span.zero
         loop do
           b = socket.read_byte || break
           type = b >> 4          # upper 4 bits
@@ -150,23 +149,9 @@ module MQTT
           else            raise "invalid packet type for server to send"
           end
 
-          if @keepalive.positive?
-            now = Time.monotonic
-            @last_packet_received = now
-            if (now - @last_packet_sent).total_seconds > @keepalive * 0.9
-              send_pingreq
-            end
-          end
+          maybe_send_ping
         rescue ex : IO::TimeoutError
-          if @keepalive.positive?
-            now = Time.monotonic
-            ping_diff = now - @last_packet_received
-            if ping_diff.total_seconds > @keepalive * 1.5
-              raise TimeoutError.new("No ping response from server in #{ping_diff}", cause: ex)
-            else
-              send_pingreq
-            end
-          end
+          try_send_ping
         rescue IO::Error
           break
         end
@@ -174,6 +159,28 @@ module MQTT
         raise ex if @connected
       ensure
         close
+      end
+
+      private def maybe_send_ping
+        return unless @keepalive.positive?
+
+        now = Time.monotonic
+        @last_packet_received = now
+        if (now - @last_packet_sent).total_seconds > @keepalive * 0.9
+          send_pingreq
+        end
+      end
+
+      private def try_send_ping
+        return unless @keepalive.positive?
+
+        now = Time.monotonic
+        ping_diff = now - @last_packet_received
+        if ping_diff.total_seconds > @keepalive * 1.5
+          raise TimeoutError.new("No ping response from server in #{ping_diff}", cause: ex)
+        else
+          send_pingreq
+        end
       end
 
       private def connack(flags, pktlen)
