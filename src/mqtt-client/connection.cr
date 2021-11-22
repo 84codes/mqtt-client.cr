@@ -151,7 +151,7 @@ module MQTT
 
           maybe_send_ping
         rescue ex : IO::TimeoutError
-          try_send_ping
+          try_send_ping(ex)
         rescue IO::Error
           break
         end
@@ -171,8 +171,8 @@ module MQTT
         end
       end
 
-      private def try_send_ping
-        return unless @keepalive.positive?
+      private def try_send_ping(ex)
+        raise ex unless @keepalive.positive?
 
         now = Time.monotonic
         ping_diff = now - @last_packet_received
