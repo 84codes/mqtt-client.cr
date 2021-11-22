@@ -17,11 +17,7 @@ module MQTT
     @connection : Connection
     @lock = Mutex.new
 
-    def publish(topic : String, body : Bytes, qos : Int = 0u8, retain = false)
-      publish(Message.new(topic, body, qos.to_u8, retain))
-    end
-
-    def publish(topic : String, body : String, qos : Int = 0u8, retain = false)
+    def publish(topic : String, body, qos : Int = 0u8, retain = false)
       publish(Message.new(topic, body.to_slice, qos.to_u8, retain))
     end
 
@@ -42,7 +38,7 @@ module MQTT
       with_connection &.subscribe(*topics)
     end
 
-    def on_message(&blk : (Message, Acker) -> Nil)
+    def on_message(&blk : ReceivedMessage -> Nil)
       @on_message = blk
       with_connection &.on_message = blk
     end

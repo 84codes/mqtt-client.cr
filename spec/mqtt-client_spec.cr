@@ -4,11 +4,10 @@ describe MQTT::Client do
   it "can publish" do
     done = Channel(Nil).new
     mqtt = MQTT::Client.new(MQTT_HOST, 1883, client_id: "can publish")
-    mqtt.on_message do |msg, acker|
+    mqtt.on_message do |msg|
       msg.topic.should eq "foo"
       msg.body.should eq "bar".to_slice
-      puts "MSG #{msg}"
-      acker.ack
+      msg.ack
       done.send nil
     end
     mqtt.subscribe("foo", 1)
