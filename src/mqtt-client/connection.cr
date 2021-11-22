@@ -3,21 +3,6 @@ require "./errors"
 
 module MQTT
   class Client
-    struct Acker
-      def initialize(@conn : Connection, @qos : UInt8, @packet_id : UInt16?)
-        @acked = false
-      end
-
-      def ack
-        return if @acked
-        case @qos
-        when 1 then @conn.puback(@packet_id.not_nil!)
-        when 2 then @conn.pubrec(@packet_id.not_nil!)
-        end
-        @acked = true
-      end
-    end
-
     struct SocketOptions
       property buffer_size, recv_buffer_size, send_buffer_size
 
@@ -30,8 +15,8 @@ module MQTT
     class Connection
       @acks = Channel(UInt16).new
       @pub_acks = Channel(UInt16).new # outgoing acks
-      @on_message : Proc(Message, Acker, Nil)?
-      @messages = Channel({Message, Acker}).new(16)
+      @on_message : Proc(ReceivedMessage, Nil)?
+      @messages = Channel(ReceivedMessage).new(16)
       @packet_id = 0u16
       @last_packet_received = Time.monotonic
       @last_packet_sent = Time.monotonic
@@ -136,15 +121,14 @@ module MQTT
 
       def message_loop
         loop do
-          message, acker = @messages.receive? || break
-          @on_message.try &.call(message, acker)
-          acker.ack if @autoack
+          message = @messages.receive? || break
+          @on_message.try &.call(message)
+          message.ack if @autoack
         end
       end
 
       # http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718021
-      private def read_loop
-        socket = @socket
+      private def read_loop(socket = @socket)
         now = Time::Span.zero
         loop do
           b = socket.read_byte || break
@@ -197,7 +181,7 @@ module MQTT
         session_present = (socket.read_byte || raise IO::EOFError.new) == 1u8
         return_code = socket.read_byte || raise IO::EOFError.new
         case return_code
-        when 0u8 then return session_present
+        when 0u8 then session_present
         when 1u8 then raise InvalidProtocolVersion.new
         when 2u8 then raise IdentifierReject.new
         when 3u8 then raise ServerUnavailable.new
@@ -224,11 +208,11 @@ module MQTT
         send_pubrec(packet_id)
       end
 
-      def on_message=(blk : Proc(Message, Acker, Nil)?)
+      def on_message=(blk : Proc(ReceivedMessage, Nil)?)
         @on_message = blk
       end
 
-      def on_message(&blk : Proc(Message, Acker, Nil))
+      def on_message(&blk : Proc(ReceivedMessage, Nil))
         @on_message = blk
       end
 
@@ -296,17 +280,13 @@ module MQTT
         publish(msg.topic, msg.body, msg.qos, msg.retain)
       end
 
-      def publish(topic : String, body : String, qos : Int = 0u8, retain = false)
-        publish(topic, body.to_slice, qos, retain)
-      end
-
-      def publish(topic : String, body : Bytes, qos : Int = 0u8, retain = false)
-        if id = send_publish(@socket, topic, body, qos.to_u8, retain)
+      def publish(topic : String, body, qos : Int = 0u8, retain = false, dup = false)
+        if id = send_publish(@socket, topic, body.to_slice, qos.to_u8, retain, dup)
           wait_for_id(id)
         end
       end
 
-      def send_publish(socket, topic, body, qos, retain = false, dup = false) : UInt16?
+      def send_publish(socket : IO, topic : String, body : Slice, qos : UInt8, retain : Bool, dup : Bool) : UInt16?
         raise ArgumentError.new("Invalid QoS") unless 0 <= qos <= 2
 
         header = 0b00110000u8
@@ -346,14 +326,13 @@ module MQTT
         retain = flags.bit(0) == 1
         topic = read_string(socket)
         header_len = 2 + topic.bytesize
-        packet_id = read_int(socket) if qos > 0
+        packet_id = qos > 0 ? read_int(socket) : 0u16
         header_len += 2 if packet_id
 
         body = Bytes.new(pktlen - header_len)
         socket.read_fully(body)
 
-        @messages.send({Message.new(topic, body, qos, retain, dup),
-                        Acker.new(self, qos, packet_id)})
+        @messages.send(ReceivedMessage.new(self, packet_id, topic, body, qos, retain, dup))
       end
 
       private def send_pingreq
