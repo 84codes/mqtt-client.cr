@@ -119,9 +119,9 @@ module MQTT
         raise TimeoutError.new("Connect timeout", cause: ex)
       end
 
-      def message_loop
+      def message_loop(messages = @messages)
         loop do
-          message = @messages.receive? || break
+          message = messages.receive? || break
           @on_message.try &.call(message)
           message.ack if @autoack
         end
