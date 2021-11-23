@@ -382,7 +382,7 @@ module MQTT
         packet_id = read_int(socket)
 
         qos_len = pktlen - 2
-        qoses = Array(UInt8).new(qos_len) do
+        Array(UInt8).new(qos_len) do
           socket.read_byte || raise IO::EOFError.new
         end
         @acks.send packet_id
