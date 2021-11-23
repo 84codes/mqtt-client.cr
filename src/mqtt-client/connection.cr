@@ -45,7 +45,7 @@ module MQTT
 
       def close
         @connected = false
-        @socket.close
+        @socket.close rescue nil
         @messages.close
         @acks.close
       end
