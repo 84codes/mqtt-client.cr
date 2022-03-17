@@ -334,9 +334,11 @@ module MQTT
         retain = flags.bit(0) == 1
         topic = read_string(socket)
         header_len = 2 + topic.bytesize
-        packet_id = qos > 0 ? read_int(socket) : 0u16
-        header_len += 2 if packet_id
-
+        packet_id = 0u16
+        if qos > 0
+          packet_id = read_int(socket)
+          header_len += 2
+        end
         body = Bytes.new(pktlen - header_len)
         socket.read_fully(body)
 
