@@ -1,5 +1,11 @@
 name: CI
-on: [push]
+on:
+  push:
+    branch:
+      - main
+  pull_request:
+  schedule:
+    - cron: '0 12 * * 1' # weekly, monday, 12pm UTC
 
 jobs:
   lint:
