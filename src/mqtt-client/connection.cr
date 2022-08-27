@@ -61,19 +61,7 @@ module MQTT
         socket = @socket
         socket.write_byte 0b00010000u8 # type + flags
 
-        length = 10
-        length += 2 + @client_id.bytesize
-        if u = @user
-          length += 2 + u.bytesize
-        end
-        if p = @password
-          length += 2 + p.bytesize
-        end
-        if w = @will
-          length += 2 + w.topic.bytesize + 2 + w.body.bytesize
-        end
-
-        encode_length(socket, length)
+        encode_length(socket, connect_length)
 
         send_string(socket, "MQTT")
         socket.write_byte 0x04 # protocol version 3.1.1
@@ -97,11 +85,30 @@ module MQTT
           socket.write_bytes w.body.bytesize.to_u16, IO::ByteFormat::NetworkEndian
           socket.write w.body
         end
-        send_string(socket, @user.not_nil!) if @user
-        send_string(socket, @password.not_nil!) if @password
+        if user = @user
+          send_string(socket, user)
+        end
+        if password = @password
+          send_string(socket, password)
+        end
 
         socket.flush
         update_last_packet_sent
+      end
+
+      private def connect_length : Int32
+        length = 10
+        length += 2 + @client_id.bytesize
+        if u = @user
+          length += 2 + u.bytesize
+        end
+        if p = @password
+          length += 2 + p.bytesize
+        end
+        if w = @will
+          length += 2 + w.topic.bytesize + 2 + w.body.bytesize
+        end
+        length
       end
 
       private def expect_connack
