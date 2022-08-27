@@ -9,18 +9,13 @@ on:
 
 jobs:
   lint:
-    name: Lint
     runs-on: ubuntu-latest
     continue-on-error: true
-
+    container: 84codes/crystal:latest-ubuntu-20.04
     steps:
-      - name: Checkout
-        uses: actions/checkout@v2
-
-      - name: Crystal Ameba Linter
-        uses: crystal-ameba/github-action@v0.2.12
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v3
+      - run: shards install
+      - run: bin/ameba --no-color
 
   spec:
     name: Spec
@@ -29,14 +24,11 @@ jobs:
     services:
       myramq:
         image: cloudamqp/myramq
-
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
-
+        uses: actions/checkout@v3
       - name: Shards install
-        run: shards install
-
+        run: shards install --deployment
       - name: Spec
         run: crystal spec --no-color --order random
         env:
@@ -47,8 +39,6 @@ jobs:
     runs-on: ubuntu-latest
     container: 84codes/crystal:latest-ubuntu-20.04
     steps:
-      - name: Checkout
-        uses: actions/checkout@v2
-
+      - uses: actions/checkout@v3
       - name: Format check
         run: crystal tool format --check
