@@ -21,9 +21,6 @@ jobs:
     name: Spec
     runs-on: ubuntu-latest
     container: 84codes/crystal:latest-ubuntu-20.04
-    services:
-      myramq:
-        image: cloudamqp/myramq
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -31,8 +28,6 @@ jobs:
         run: shards install --deployment
       - name: Spec
         run: crystal spec --no-color --order random
-        env:
-          MQTT_HOST: myramq
 
   format:
     name: Formatting
