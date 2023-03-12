@@ -236,16 +236,20 @@ module MQTT
         @on_message = blk
       end
 
-      def subscribe(topic : String, qos : Int = 0u8)
+      def subscribe(topic : String, qos : UInt8 = 0u8)
         subscribe({topic, qos})
       end
 
-      def subscribe(*topics : Tuple(String, Int))
-        id = send_subscribe(@socket, *topics)
+      def subscribe(*topics : Tuple(String, UInt8))
+        subscribe(topics.to_a)
+      end
+
+      def subscribe(topics : Enumerable(Tuple(String, UInt8)))
+        id = send_subscribe(@socket, topics)
         wait_for_id(id)
       end
 
-      private def send_subscribe(socket, *topics : Tuple(String, Int))
+      private def send_subscribe(socket, topics : Enumerable(Tuple(String, UInt8)))
         socket.write_byte 0b10000010u8
 
         length = 2 + topics.sum { |t, _| 2 + t.bytesize + 1 }

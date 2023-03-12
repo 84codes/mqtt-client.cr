@@ -19,6 +19,7 @@ module MQTT
                    @password : String? = nil, @will : Message? = nil,
                    @keepalive : Int = 60u16, @autoack = true,
                    @sock_opts = SocketOptions.new, autoconnect = true)
+      @subscriptions = Hash(String, UInt8).new
       @verify_mode = OpenSSL::SSL::VerifyMode::PEER
       @reconnect_interval = 1
       @connect = false
@@ -34,20 +35,23 @@ module MQTT
     end
 
     def publish(*messages : Message)
-      with_connection do |connection|
+      with_connection do |conn|
         messages.each do |message|
-          connection.publish message
+          conn.publish message
         end
       end
     end
 
     def subscribe(topic : String, qos : Int = 0u8)
-      subscribe({topic, qos})
+      subscribe({topic, qos.to_u8})
     end
 
-    def subscribe(*topics : Tuple(String, Int))
+    def subscribe(*topics : Tuple(String, UInt8))
       raise ArgumentError.new("No on_message handler set") unless @on_message
-      with_connection &.subscribe(*topics)
+      with_connection do |conn|
+        conn.subscribe(topics)
+        topics.each { |t, q| @subscriptions[t] = q }
+      end
     end
 
     def on_message(&blk : ReceivedMessage -> Nil)
@@ -58,7 +62,10 @@ module MQTT
     end
 
     def unsubscribe(*topics : String)
-      with_connection &.unsubscribe(*topics)
+      with_connection do |conn|
+        conn.unsubscribe(*topics)
+        topics.each { |t| @subscriptions.delete(t) }
+      end
     end
 
     def ping
@@ -107,6 +114,10 @@ module MQTT
         Log.info { "connecting to #{@host}:#{@port}… Attempt #{attempt}" }
         connection = create_connection
         Log.info { "connected to #{@host}:#{@port}" }
+        unless @subscriptions.empty?
+          Log.info { "subscribing to topics: #{@subscriptions}" }
+          connection.not_nil!.subscribe(@subscriptions.each)
+        end
         return connection
       rescue ex
         Log.trace { "connect error\n\t#{ex.backtrace.join("\n\t")}" }
