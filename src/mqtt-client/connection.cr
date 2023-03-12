@@ -44,15 +44,15 @@ module MQTT
                      @autoack = false, @on_message : Proc(ReceivedMessage, Nil)? = nil)
         send_connect
         expect_connack
+        @connected = true
         spawn read_loop, name: "mqtt-client read_loop"
         spawn message_loop, name: "mqtt-client message_loop"
-        @connected = true
       end
 
       def disconnect
         send_disconnect(@socket)
-        @socket.close
         Log.trace { "disconnected" }
+        close
       end
 
       def close
@@ -171,7 +171,8 @@ module MQTT
           maybe_send_ping
         rescue ex : IO::TimeoutError
           try_send_ping(ex)
-        rescue IO::Error
+        rescue ex : IO::Error
+          Log.trace { "io:error #{ex}\n\t#{ex.backtrace.join("\n\t")}" } if @connected
           break
         end
       rescue ex
