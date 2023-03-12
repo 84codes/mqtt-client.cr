@@ -1,20 +1,32 @@
+require "log"
 require "socket"
 require "openssl"
 require "./mqtt-client/connection"
 
 module MQTT
   class Client
+    Log = ::Log.for(self)
+
+    def self.new(*args, **kwargs, &)
+      client = Client.new(*args, **kwnargs.merge(autoconnect: false))
+      yield client
+      client.connect
+      client
+    end
+
     def initialize(@host : String, @port = 1883, @tls = false, @client_id = "",
                    @clean_session = true, @user : String? = nil,
                    @password : String? = nil, @will : Message? = nil,
                    @keepalive : Int = 60u16, @autoack = true,
-                   @sock_opts = SocketOptions.new)
+                   @sock_opts = SocketOptions.new, autoconnect = true)
       @verify_mode = OpenSSL::SSL::VerifyMode::PEER
       @reconnect_interval = 1
-      @connection = connect
+      @connect = false
+      Log.trace { "autoconnect = #{autoconnect}" }
+      connect if autoconnect
     end
 
-    @connection : Connection
+    @connection : Connection?
     @lock = Mutex.new
 
     def publish(topic : String, body, qos : Int = 0u8, retain = false)
@@ -40,7 +52,9 @@ module MQTT
 
     def on_message(&blk : ReceivedMessage -> Nil)
       @on_message = blk
-      with_connection &.on_message = blk
+      with_connection? do |conn|
+        conn.on_message = blk
+      end
     end
 
     def unsubscribe(*topics : String)
@@ -56,31 +70,54 @@ module MQTT
     end
 
     def close
-      with_connection &.close
+      with_connection? &.close
+    end
+
+    def connect
+      Log.trace { "connect @connect=#{@connect}" }
+      return if @connect
+      @connect = true
+      @lock.synchronize { @connection = reconnect }
+    end
+
+    private def with_connection?
+      @lock.synchronize do
+        if conn = @connection
+          yield conn
+        end
+      end
     end
 
     private def with_connection
       @lock.synchronize do
-        @connection = reconnect unless @connection.connected?
-        yield @connection
+        raise "call connect first" unless @connect
+        @connection = reconnect unless @connection.try &.connected?
+        if conn = @connection
+          yield conn
+        else
+          raise "BUG? @connection nil"
+        end
       end
     end
 
-    private def reconnect
+    private def reconnect : Connection
+      attempt = 0
       loop do
-        connection = connect
-        connection.on_message = @on_message
+        attempt += 1
+        Log.info { "connecting to #{@host}:#{@port}… Attempt #{attempt}" }
+        connection = create_connection
+        Log.info { "connected to #{@host}:#{@port}" }
         return connection
       rescue ex
-        STDERR.puts "MQTT-Client reconnect error: #{ex.message}"
+        Log.trace { "connect error\n\t#{ex.backtrace.join("\n\t")}" }
         sleep @reconnect_interval
       end
     end
 
-    private def connect
+    private def create_connection : Connection
       Connection.new(@host, @port, @tls, @client_id, @clean_session,
         @user, @password, @will, @keepalive.to_u16, @autoack,
-        @sock_opts)
+        @sock_opts, @on_message)
     end
   end
 end

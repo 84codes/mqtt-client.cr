@@ -33,7 +33,9 @@ describe MQTT::Client do
         end
         done.send(nil)
       end
-      mqtt = MQTT::Client.new(server.address.address, server.address.port, client_id: "can publish")
+      mqtt = MQTT::Client.new(server.address.address,
+        port: server.address.port,
+        client_id: "can publish")
 
       recieved_message_count = 0
       mqtt.on_message do |msg|
@@ -51,8 +53,6 @@ describe MQTT::Client do
       mqtt.close
       done.receive
       recieved_message_count.should eq 2
-      #    ensure
-      #      mqtt.try &.close
     end
   end
 
@@ -70,10 +70,10 @@ describe MQTT::Client do
         done.send(nil)
       end
 
-      mqtt = MQTT::Client.new(server.address.address, server.address.port, client_id: "can ping")
+      mqtt = MQTT::Client.new(server.address.address, port: server.address.port, client_id: "can ping")
       mqtt.ping
       done.receive
-      mqtt.@connection.@last_packet_received.should be_close Time.monotonic, 1.second
+      mqtt.@connection.not_nil!.@last_packet_received.should be_close Time.monotonic, 1.second
     end
   end
 
@@ -95,7 +95,7 @@ describe MQTT::Client do
         done.send(nil)
       end
 
-      MQTT::Client.new(server.address.address, server.address.port, keepalive: 1u16, client_id: "can keepalive")
+      MQTT::Client.new(server.address.address, port: server.address.port, keepalive: 1u16, client_id: "can keepalive")
       done.receive
       ping_recieved.should be_true
     end

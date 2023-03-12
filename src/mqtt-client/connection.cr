@@ -13,6 +13,8 @@ module MQTT
     end
 
     class Connection
+      Log = ::Log.for(self)
+
       @acks = Channel(UInt16).new
       @on_message : Proc(ReceivedMessage, Nil)?
       @messages = Channel(ReceivedMessage).new(16)
@@ -24,20 +26,22 @@ module MQTT
 
       def self.new(host : String, port = 1883, tls = false, client_id = "", clean_session = true,
                    user : String? = nil, password : String? = nil, will : Message? = nil,
-                   keepalive : Int = 60u16, autoack = true, sock_opts = SocketOptions.new)
+                   keepalive : Int = 60u16, autoack = true, sock_opts = SocketOptions.new,
+                   on_message : Proc(ReceivedMessage, Nil)? = nil)
+        Log.debug { "creating connection to #{host}:#{port}" }
         if tls
           socket = connect_tls(connect_tcp(host, port, keepalive, sock_opts), OpenSSL::SSL::VerifyMode::PEER, host)
-          Connection.new(socket, client_id, clean_session, user, password, will, keepalive.to_u16, autoack)
+          Connection.new(socket, client_id, clean_session, user, password, will, keepalive.to_u16, autoack, on_message)
         else
           socket = connect_tcp(host, port, keepalive, sock_opts)
-          Connection.new(socket, client_id, clean_session, user, password, will, keepalive.to_u16, autoack)
+          Connection.new(socket, client_id, clean_session, user, password, will, keepalive.to_u16, autoack, on_message)
         end
       end
 
       def initialize(@socket : IO, @client_id = "", @clean_session = true,
                      @user : String? = nil, @password : String? = nil,
                      @will : Message? = nil, @keepalive : UInt16 = 60u16,
-                     @autoack = false)
+                     @autoack = false, @on_message : Proc(ReceivedMessage, Nil)? = nil)
         send_connect
         expect_connack
         spawn read_loop, name: "mqtt-client read_loop"
@@ -129,7 +133,9 @@ module MQTT
       def message_loop(messages = @messages)
         loop do
           message = messages.receive? || break
-          @on_message.try &.call(message)
+          if on_message = @on_message
+            on_message.call(message)
+          end
           message.ack if @autoack
         end
       end
