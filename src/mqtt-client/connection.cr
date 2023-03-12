@@ -52,6 +52,7 @@ module MQTT
       def disconnect
         send_disconnect(@socket)
         @socket.close
+        Log.trace { "disconnected" }
       end
 
       def close
@@ -62,6 +63,7 @@ module MQTT
       end
 
       private def send_connect : Nil
+        Log.trace { "sending connect" }
         socket = @socket
         socket.write_byte 0b00010000u8 # type + flags
 
@@ -96,6 +98,7 @@ module MQTT
           send_string(socket, password)
         end
 
+        Log.trace { "sent connect" }
         socket.flush
         update_last_packet_sent
       end
@@ -116,6 +119,7 @@ module MQTT
       end
 
       private def expect_connack
+        Log.trace { "waiting for connack" }
         socket = @socket
         b = socket.read_byte || raise IO::EOFError.new
         type = b >> 4          # upper 4 bits
@@ -126,6 +130,7 @@ module MQTT
         when 2 then connack(flags, pktlen)
         else        raise UnexpectedPacket.new
         end
+        Log.trace { "received connack" }
       rescue ex : IO::TimeoutError
         raise TimeoutError.new("Connect timeout", cause: ex)
       end
@@ -148,6 +153,7 @@ module MQTT
           flags = b & 0b00001111 # lower 4 bits
           pktlen = decode_length(socket)
 
+          Log.trace { "got type #{type}" }
           case type
           when 2     then connack(flags, pktlen)
           when 3     then publish(flags, pktlen)
@@ -201,7 +207,9 @@ module MQTT
         session_present = (socket.read_byte || raise IO::EOFError.new) == 1u8
         return_code = socket.read_byte || raise IO::EOFError.new
         case return_code
-        when 0u8 then session_present
+        when 0u8
+          Log.trace { "connected, session_present #{session_present}" }
+          session_present
         when 1u8 then raise InvalidProtocolVersion.new
         when 2u8 then raise IdentifierReject.new
         when 3u8 then raise ServerUnavailable.new
