@@ -20,13 +20,11 @@ describe MQTT::Client do
           packet = MP::Packet.from_io(client_io)
           case packet
           when MP::Publish
-            pub = packet.as(MP::Publish)
-            MP::PubAck.new(pub.packet_id.not_nil!).to_io(client_io)
-            pub.to_io(client_io) if subscribed
+            MP::PubAck.new(packet.packet_id.not_nil!).to_io(client_io)
+            packet.to_io(client_io) if subscribed
           when MP::Unsubscribe
-            unsub = packet.as(MP::Unsubscribe)
             subscribed = false
-            MP::UnsubAck.new(unsub.packet_id).to_io(client_io)
+            MP::UnsubAck.new(packet.packet_id).to_io(client_io)
           when MP::Disconnect
             break
           end
